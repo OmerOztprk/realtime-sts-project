@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <title>Realtime Türkçe Konuşan Bot</title>
+</head>
+<body>
+  <h1>🎤 Türkçe Konuşan AI Bot</h1>
+  <button id="start-btn">Konuşmayı Başlat</button>
+  <button id="reply-btn">Cevap Al</button>
+  <audio id="remoteAudio" autoplay controls></audio>
+
+  <script>
+    let pc, dc;
+
+    async function start() {
+      const tokenRes = await fetch("/session");
+      const data = await tokenRes.json();
+      const EPHEMERAL_KEY = data.client_secret?.value;
+
+      if (!EPHEMERAL_KEY) {
+        console.error("Ephemeral key alınamadı:", data);
+        return alert("Ephemeral key alınamadı. Konsola bakın.");
+      }
+
+      pc = new RTCPeerConnection();
+
+      const audioEl = document.getElementById("remoteAudio");
+      pc.ontrack = (e) => {
+        audioEl.srcObject = e.streams[0];
+      };
+
+      const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
+      pc.addTrack(ms.getTracks()[0]);
+
+      dc = pc.createDataChannel("oai-events");
+      dc.addEventListener("message", (e) => console.log("Event:", e.data));
+
+      dc.addEventListener("open", () => {
+        console.log("✅ DataChannel açık.");
+
+        const updateSessionEvent = {
+          type: "session.update",
+          session: {
+            instructions: "Sen bir Türkçe konuşan asistanısın. Tüm cevaplarını Türkçe ver.",
+            turn_detection: {
+              type: "server_vad",
+              create_response: false,
+              interrupt_response: false
+            },
+          },
+        };
+        dc.send(JSON.stringify(updateSessionEvent));
+        console.log("📤 Session update gönderildi.");
+      });
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const resp = await fetch(`https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17`, {
+        method: "POST",
+        body: offer.sdp,
+        headers: {
+          Authorization: `Bearer ${EPHEMERAL_KEY}`,
+          "Content-Type": "application/sdp",
+        },
+      });
+
+      const answer = { type: "answer", sdp: await resp.text() };
+      await pc.setRemoteDescription(answer);
+
+      console.log("🎤 Konuşmaya hazırsın!");
+    }
+
+    function triggerResponse() {
+      if (!dc || dc.readyState !== "open") {
+        return alert("DataChannel açık değil!");
+      }
+
+      const event = {
+        type: "response.create",
+        response: { modalities: ["audio", "text"] },
+      };
+      dc.send(JSON.stringify(event));
+      console.log("📤 response.create gönderildi.");
+    }
+
+    document.getElementById("start-btn").addEventListener("click", start);
+    document.getElementById("reply-btn").addEventListener("click", triggerResponse);
+  </script>
+</body>
+</html>
