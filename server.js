@@ -12,11 +12,6 @@ if (!OPENAI_API_KEY) {
 const app = express();
 app.use(express.static("public"));
 
-/**
- * GET /session
- * Mints a 1‑minute **ephemeral** key and returns the full JSON
- * needed by the browser to open a WebRTC session.
- */
 app.get("/session", async (_req, res) => {
   try {
     const r = await fetch("https://api.openai.com/v1/realtime/sessions", {
@@ -27,10 +22,8 @@ app.get("/session", async (_req, res) => {
       },
       body: JSON.stringify({
         model: "gpt-4o-realtime-preview-2024-12-17",
-        voice: "alloy",                    // pick any built‑in voice
+        voice: "alloy",
         instructions: "Tüm yanıtlarını Türkçe ver.",
-        // optional: force wav output for easy playback/recording tooling
-        // output_audio_format: "wav"
       })
     });
 
@@ -50,4 +43,3 @@ app.get("/session", async (_req, res) => {
 app.listen(PORT, () =>
   console.log(`✅  Voice bot server running on http://localhost:${PORT}`)
 );
-  

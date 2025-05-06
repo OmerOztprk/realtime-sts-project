@@ -1,119 +1,120 @@
 <!DOCTYPE html>
 <html lang="tr">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Türkçe Realtime Sesli Bot</title>
   <style>
-    body {
-      font-family: sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 40px
-    }
-
-    button {
-      padding: 10px 20px;
-      font-size: 1rem;
-      margin: 12px
-    }
-
-    #logs {
-      width: 90%;
-      max-width: 600px;
-      height: 220px;
-      overflow: auto;
-      border: 1px solid #ccc;
-      padding: 8px;
-      font-size: .85rem;
-      white-space: pre-wrap
-    }
+    body{font-family:sans-serif;display:flex;flex-direction:column;align-items:center;padding:40px}
+    button{padding:10px 20px;font-size:1rem;margin:12px}
+    #logs{width:90%;max-width:600px;height:220px;overflow:auto;border:1px solid #ccc;padding:8px;font-size:.85rem;white-space:pre-wrap}
   </style>
 </head>
-
 <body>
   <h1>Türkçe Realtime Sesli Bot (WebRTC)</h1>
   <button id="startBtn">Bağlan + Konuş</button>
   <button id="stopBtn" disabled>Durdur</button>
   <div id="logs"></div>
 
-  <script type="module">
-    const startBtn = document.getElementById("startBtn");
-    const stopBtn = document.getElementById("stopBtn");
-    const logsEl = document.getElementById("logs");
+<script type="module">
+const startBtn = document.getElementById("startBtn");
+const stopBtn  = document.getElementById("stopBtn");
+const logsEl   = document.getElementById("logs");
 
-    let pc, dc, localTrack, audioEl;
+let pc, dc, localTrack, audioEl;
 
-    function log(...args) {
-      console.log(...args);
-      logsEl.textContent += args.join(" ") + "\n";
-      logsEl.scrollTop = logsEl.scrollHeight;
-    }
+function log(...args){
+  console.log(...args);
+  logsEl.textContent += args.join(" ") + "\n";
+  logsEl.scrollTop = logsEl.scrollHeight;
+}
 
-    async function connect() {
-      startBtn.disabled = true;
-      stopBtn.disabled = false;
+async function connect() {
+  startBtn.disabled = true;
+  stopBtn.disabled  = false;
 
-      // 1. Get an EPHEMERAL key & SDP answer from backend
-      const { client_secret, id: sessionId } = await (await fetch("/session")).json();
-      const EPHEMERAL_KEY = client_secret.value;
+  // 1 – Ephemeral key
+  const { client_secret, id: sessionId } = await (await fetch("/session")).json();
+  const EPHEMERAL_KEY = client_secret.value;
 
-      // 2. Peer connection
-      pc = new RTCPeerConnection();
-      dc = pc.createDataChannel("oai-events");
+  // 2 – Peer connection & Data channel
+  pc = new RTCPeerConnection();
+  dc = pc.createDataChannel("oai-events");
 
-      dc.onmessage = (e) => {
-        const evt = JSON.parse(e.data);
-        // For demo: show only high‑level markers
-        if (evt.type === "input_audio_buffer.speech_started") log("🗣️  Konuşma başladı");
-        if (evt.type === "input_audio_buffer.speech_stopped") log("🤫  Konuşma bitti");
-        if (evt.type === "response.done") log("🔈  Yanıt tamam");
-        if (evt.type === "error") log("⚠️  Hata:", evt.message);
-      };
-
-      // 3. Remote audio -> play
-      audioEl = new Audio();
-      audioEl.autoplay = true;
-      pc.ontrack = (e) => { audioEl.srcObject = e.streams[0]; };
-
-      // 4. Local microphone
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      localTrack = stream.getTracks()[0];
-      pc.addTrack(localTrack);
-
-      // 5. Offer / Answer with SDPs
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      const sdpRes = await fetch(`https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17`, {
-        method: "POST",
-        body: offer.sdp,
-        headers: {
-          Authorization: `Bearer ${EPHEMERAL_KEY}`,
-          "Content-Type": "application/sdp"
+  dc.onopen = () => {
+    // Server‑VAD ayarı – yalnızca yakın, yüksek ses:
+    const vadTweak = {
+      type: "session.update",
+      session: {
+        turn_detection: {
+          type: "server_vad",
+          threshold: 0.75,          // uzak/gürültülü sesleri yok say
+          prefix_padding_ms: 300,
+          silence_duration_ms: 500,
+          create_response: true,
+          interrupt_response: true
         },
-      });
-      const answer = { type: "answer", sdp: await sdpRes.text() };
-      await pc.setRemoteDescription(answer);
+        input_audio_noise_reduction: { type: "near_field" }
+      }
+    };
+    dc.send(JSON.stringify(vadTweak));
+    log("🎚️  VAD threshold 0.75 olarak ayarlandı");
+  };
 
-      log("✅  Bağlantı kuruldu — Session:", sessionId);
+  dc.onmessage = (e) => {
+    const evt = JSON.parse(e.data);
+    if (evt.type === "input_audio_buffer.speech_started")  log("🗣️  Konuşma başladı");
+    if (evt.type === "input_audio_buffer.speech_stopped")  log("🤫  Konuşma bitti");
+    if (evt.type === "response.done")                      log("🔈  Yanıt tamam");
+    if (evt.type === "error")                              log("⚠️  Hata:", evt.message);
+  };
+
+  // 3 – Remote audio
+  audioEl = new Audio();
+  audioEl.autoplay = true;
+  pc.ontrack = (e) => { audioEl.srcObject = e.streams[0]; };
+
+  // 4 – Mikrofon
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      noiseSuppression: true,
+      echoCancellation: true,
+      autoGainControl: false
     }
+  });
+  localTrack = stream.getTracks()[0];
+  pc.addTrack(localTrack);
 
-    function disconnect() {
-      stopBtn.disabled = true;
-      startBtn.disabled = false;
-      if (dc) dc.close();
-      if (pc) pc.close();
-      if (localTrack) localTrack.stop();
-      pc = dc = localTrack = null;
-      log("⛔  Bağlantı kapatıldı");
-    }
+  // 5 – SDP Offer / Answer
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
 
-    startBtn.onclick = connect;
-    stopBtn.onclick = disconnect;
-  </script>
+  const sdpRes = await fetch("https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17", {
+    method: "POST",
+    body: offer.sdp,
+    headers: {
+      Authorization: `Bearer ${EPHEMERAL_KEY}`,
+      "Content-Type": "application/sdp"
+    },
+  });
+  const answer = { type: "answer", sdp: await sdpRes.text() };
+  await pc.setRemoteDescription(answer);
+
+  log("✅  Bağlantı kuruldu — Session:", sessionId);
+}
+
+function disconnect(){
+  stopBtn.disabled  = true;
+  startBtn.disabled = false;
+  if (dc)   dc.close();
+  if (pc)   pc.close();
+  if (localTrack) localTrack.stop();
+  pc = dc = localTrack = null;
+  log("⛔  Bağlantı kapatıldı");
+}
+
+startBtn.onclick = connect;
+stopBtn.onclick  = disconnect;
+</script>
 </body>
-
 </html>
