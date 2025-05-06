@@ -1,38 +1,53 @@
 import express from "express";
 import dotenv from "dotenv";
-import fetch from "node-fetch";
 
 dotenv.config();
+const { OPENAI_API_KEY, PORT = 3000 } = process.env;
+
+if (!OPENAI_API_KEY) {
+  console.error("❌  OPENAI_API_KEY missing in .env");
+  process.exit(1);
+}
 
 const app = express();
-const PORT = 3000;
-
 app.use(express.static("public"));
 
-app.get("/session", async (req, res) => {
+/**
+ * GET /session
+ * Mints a 1‑minute **ephemeral** key and returns the full JSON
+ * needed by the browser to open a WebRTC session.
+ */
+app.get("/session", async (_req, res) => {
   try {
-    const response = await fetch("https://api.openai.com/v1/realtime/sessions", {
+    const r = await fetch("https://api.openai.com/v1/realtime/sessions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({
         model: "gpt-4o-realtime-preview-2024-12-17",
-        voice: "verse",
-      }),
+        voice: "alloy",                    // pick any built‑in voice
+        instructions: "Tüm yanıtlarını Türkçe ver.",
+        // optional: force wav output for easy playback/recording tooling
+        // output_audio_format: "wav"
+      })
     });
 
-    const data = await response.json();
-    console.log("Ephemeral token response:", data);
+    if (!r.ok) {
+      const err = await r.text();
+      return res.status(500).json({ error: err });
+    }
 
+    const data = await r.json();
     res.json(data);
-  } catch (err) {
-    console.error("Session error:", err);
-    res.status(500).json({ error: err.message });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to create Realtime session" });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+app.listen(PORT, () =>
+  console.log(`✅  Voice bot server running on http://localhost:${PORT}`)
+);
+  

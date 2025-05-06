@@ -1,92 +1,119 @@
 <!DOCTYPE html>
 <html lang="tr">
+
 <head>
-  <meta charset="UTF-8">
-  <title>Realtime Türkçe Konuşan Bot</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Türkçe Realtime Sesli Bot</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px
+    }
+
+    button {
+      padding: 10px 20px;
+      font-size: 1rem;
+      margin: 12px
+    }
+
+    #logs {
+      width: 90%;
+      max-width: 600px;
+      height: 220px;
+      overflow: auto;
+      border: 1px solid #ccc;
+      padding: 8px;
+      font-size: .85rem;
+      white-space: pre-wrap
+    }
+  </style>
 </head>
+
 <body>
-  <h1>🎤 Türkçe Konuşan AI Bot</h1>
-  <button id="start-btn">Konuşmayı Başlat</button>
-  <button id="reply-btn">Cevap Al</button>
-  <audio id="remoteAudio" autoplay controls></audio>
+  <h1>Türkçe Realtime Sesli Bot (WebRTC)</h1>
+  <button id="startBtn">Bağlan + Konuş</button>
+  <button id="stopBtn" disabled>Durdur</button>
+  <div id="logs"></div>
 
-  <script>
-    let pc, dc;
+  <script type="module">
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const logsEl = document.getElementById("logs");
 
-    async function start() {
-      const tokenRes = await fetch("/session");
-      const data = await tokenRes.json();
-      const EPHEMERAL_KEY = data.client_secret?.value;
+    let pc, dc, localTrack, audioEl;
 
-      if (!EPHEMERAL_KEY) {
-        console.error("Ephemeral key alınamadı:", data);
-        return alert("Ephemeral key alınamadı. Konsola bakın.");
-      }
+    function log(...args) {
+      console.log(...args);
+      logsEl.textContent += args.join(" ") + "\n";
+      logsEl.scrollTop = logsEl.scrollHeight;
+    }
 
+    async function connect() {
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+
+      // 1. Get an EPHEMERAL key & SDP answer from backend
+      const { client_secret, id: sessionId } = await (await fetch("/session")).json();
+      const EPHEMERAL_KEY = client_secret.value;
+
+      // 2. Peer connection
       pc = new RTCPeerConnection();
+      dc = pc.createDataChannel("oai-events");
 
-      const audioEl = document.getElementById("remoteAudio");
-      pc.ontrack = (e) => {
-        audioEl.srcObject = e.streams[0];
+      dc.onmessage = (e) => {
+        const evt = JSON.parse(e.data);
+        // For demo: show only high‑level markers
+        if (evt.type === "input_audio_buffer.speech_started") log("🗣️  Konuşma başladı");
+        if (evt.type === "input_audio_buffer.speech_stopped") log("🤫  Konuşma bitti");
+        if (evt.type === "response.done") log("🔈  Yanıt tamam");
+        if (evt.type === "error") log("⚠️  Hata:", evt.message);
       };
 
-      const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
-      pc.addTrack(ms.getTracks()[0]);
+      // 3. Remote audio -> play
+      audioEl = new Audio();
+      audioEl.autoplay = true;
+      pc.ontrack = (e) => { audioEl.srcObject = e.streams[0]; };
 
-      dc = pc.createDataChannel("oai-events");
-      dc.addEventListener("message", (e) => console.log("Event:", e.data));
+      // 4. Local microphone
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      localTrack = stream.getTracks()[0];
+      pc.addTrack(localTrack);
 
-      dc.addEventListener("open", () => {
-        console.log("✅ DataChannel açık.");
-
-        const updateSessionEvent = {
-          type: "session.update",
-          session: {
-            instructions: "Sen bir Türkçe konuşan asistanısın. Tüm cevaplarını Türkçe ver.",
-            turn_detection: {
-              type: "server_vad",
-              create_response: false,
-              interrupt_response: false
-            },
-          },
-        };
-        dc.send(JSON.stringify(updateSessionEvent));
-        console.log("📤 Session update gönderildi.");
-      });
-
+      // 5. Offer / Answer with SDPs
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      const resp = await fetch(`https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17`, {
+      const sdpRes = await fetch(`https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17`, {
         method: "POST",
         body: offer.sdp,
         headers: {
           Authorization: `Bearer ${EPHEMERAL_KEY}`,
-          "Content-Type": "application/sdp",
+          "Content-Type": "application/sdp"
         },
       });
-
-      const answer = { type: "answer", sdp: await resp.text() };
+      const answer = { type: "answer", sdp: await sdpRes.text() };
       await pc.setRemoteDescription(answer);
 
-      console.log("🎤 Konuşmaya hazırsın!");
+      log("✅  Bağlantı kuruldu — Session:", sessionId);
     }
 
-    function triggerResponse() {
-      if (!dc || dc.readyState !== "open") {
-        return alert("DataChannel açık değil!");
-      }
-
-      const event = {
-        type: "response.create",
-        response: { modalities: ["audio", "text"] },
-      };
-      dc.send(JSON.stringify(event));
-      console.log("📤 response.create gönderildi.");
+    function disconnect() {
+      stopBtn.disabled = true;
+      startBtn.disabled = false;
+      if (dc) dc.close();
+      if (pc) pc.close();
+      if (localTrack) localTrack.stop();
+      pc = dc = localTrack = null;
+      log("⛔  Bağlantı kapatıldı");
     }
 
-    document.getElementById("start-btn").addEventListener("click", start);
-    document.getElementById("reply-btn").addEventListener("click", triggerResponse);
+    startBtn.onclick = connect;
+    stopBtn.onclick = disconnect;
   </script>
 </body>
+
 </html>
