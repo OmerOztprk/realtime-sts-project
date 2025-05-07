@@ -1,67 +1,75 @@
-
 <!DOCTYPE html>
 <html lang="tr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Voice Bot</title>
-  <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-</head>
-<body>
-  <div class="container">
-    <header>
-      <h1>Voice Bot</h1>
-      <p class="tagline">Sesli asistanınız ile konuşun</p>
-    </header>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voice Bot</title>
+    <link rel="stylesheet" href="style.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>Voice Bot</h1>
+        <p class="tagline">Sesli asistanınız ile konuşun</p>
+      </header>
 
-    <div class="card prompt-card">
-      <h2>Sistem Talimatları</h2>
-      <div class="input-group">
-        <textarea id="promptInput" placeholder="Asistanınıza nasıl davranmasını istediğinizi yazın..."></textarea>
-        <button id="savePromptBtn" class="primary-btn">
-          <i class="fas fa-save"></i>
-          Kaydet
-        </button>
+      <div class="card prompt-card">
+        <h2>Sistem Talimatları</h2>
+        <div class="input-group">
+          <textarea
+            id="promptInput"
+            placeholder="Asistanınıza nasıl davranmasını istediğinizi yazın..."
+          ></textarea>
+          <button id="savePromptBtn" class="primary-btn">
+            <i class="fas fa-save"></i>
+            Kaydet
+          </button>
+        </div>
       </div>
+
+      <div class="card voice-card">
+        <h2>Ses Seçenekleri</h2>
+        <div class="select-wrapper">
+          <!-- voice-card içinde -->
+          <select id="voiceSelect">
+            <option value="alloy">Alloy</option>
+            <option value="ash">Ash</option>
+            <option value="ballad">Ballad</option>
+            <option value="coral">Coral</option>
+            <option value="echo">Echo</option>
+            <option value="sage">Sage</option>
+            <option value="shimmer">Shimmer</option>
+            <option value="verse" selected>Verse</option>
+          </select>
+
+          <i class="fas fa-chevron-down"></i>
+        </div>
+        <div class="button-group">
+          <button id="startBtn" class="primary-btn">
+            <i class="fas fa-play"></i>
+            Başlat
+          </button>
+          <button id="stopBtn" class="secondary-btn" disabled>
+            <i class="fas fa-stop"></i>
+            Durdur
+          </button>
+        </div>
+      </div>
+
+      <div class="card logs-card">
+        <h2>İşlem Kayıtları</h2>
+        <pre id="logs" class="logs"></pre>
+      </div>
+
+      <footer>
+        <p>GPT-4o Realtime API ile geliştirilmiştir</p>
+      </footer>
     </div>
 
-    <div class="card voice-card">
-      <h2>Ses Seçenekleri</h2>
-      <div class="select-wrapper">
-        <select id="voiceSelect">
-          <option value="alloy">Alloy</option>
-          <option value="echo">Echo</option>
-          <option value="fable">Fable</option>
-          <option value="onyx">Onyx</option>
-          <option value="nova">Nova</option>
-          <option value="shimmer">Shimmer</option>
-          <option value="verse" selected>Verse</option>
-        </select>
-        <i class="fas fa-chevron-down"></i>
-      </div>
-      <div class="button-group">
-        <button id="startBtn" class="primary-btn">
-          <i class="fas fa-play"></i>
-          Başlat
-        </button>
-        <button id="stopBtn" class="secondary-btn" disabled>
-          <i class="fas fa-stop"></i>
-          Durdur
-        </button>
-      </div>
-    </div>
-
-    <div class="card logs-card">
-      <h2>İşlem Kayıtları</h2>
-      <pre id="logs" class="logs"></pre>
-    </div>
-
-    <footer>
-      <p>GPT-4o Realtime API ile geliştirilmiştir</p>
-    </footer>
-  </div>
-  
-  <script type="module" src="script.js"></script>
-</body>
+    <script type="module" src="script.js"></script>
+  </body>
 </html>
