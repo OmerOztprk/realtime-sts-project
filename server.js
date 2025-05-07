@@ -9,26 +9,42 @@ if (!OPENAI_API_KEY) {
   process.exit(1);
 }
 
+const ALLOWED_VOICES = [
+  "alloy",
+  "ash",
+  "ballad",
+  "coral",
+  "echo",
+  "sage",
+  "shimmer",
+  "verse",
+];
+
 const app = express();
 app.use(express.static("public"));
 
 /* ---------- Realtime session ---------- */
-app.get("/session", async (_req, res) => {
+app.get("/session", async (req, res) => {
+  const voice = (req.query.voice || "verse").toLowerCase();
+  if (!ALLOWED_VOICES.includes(voice)) {
+    return res.status(400).json({ error: "Invalid voice" });
+  }
+
   try {
     const r = await fetch("https://api.openai.com/v1/realtime/sessions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         model: "gpt-4o-realtime-preview-2024-12-17",
-        voice: "alloy",
-        instructions: "Tüm yanıtlarını Türkçe ver."
-      })
+        voice,
+        instructions: "Tüm yanıtlarını Türkçe ver.",
+      }),
     });
 
-    if (!r.ok) return res.status(500).json({ error: await r.text() });
+    if (!r.ok) return res.status(502).json({ error: await r.text() });
     res.json(await r.json());
   } catch (e) {
     console.error(e);
@@ -42,13 +58,15 @@ app.get("/tool/weather", async (req, res) => {
   if (!city) return res.status(400).json({ error: "city param missing" });
 
   try {
-    const r = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=j1`);
+    const r = await fetch(
+      `https://wttr.in/${encodeURIComponent(city)}?format=j1`
+    );
     const data = await r.json();
     const c = data.current_condition?.[0];
     res.json({
       city,
       temp: c?.temp_C,
-      description: c?.weatherDesc?.[0]?.value
+      description: c?.weatherDesc?.[0]?.value,
     });
   } catch {
     res.status(500).json({ error: "Weather fetch failed" });
@@ -62,7 +80,9 @@ app.get("/tool/rate", async (req, res) => {
 
   try {
     /* 1. ana kaynak */
-    let r = await fetch(`https://api.exchangerate.host/latest?base=${base}&symbols=${target}`);
+    let r = await fetch(
+      `https://api.exchangerate.host/latest?base=${base}&symbols=${target}`
+    );
     let data = await r.json();
     let rate = data.rates?.[target];
 
@@ -77,7 +97,6 @@ app.get("/tool/rate", async (req, res) => {
       return res.status(502).json({ error: "Rate not found in both APIs" });
 
     res.json({ base, target, rate });
-
   } catch (e) {
     console.error("rate error:", e);
     res.status(500).json({ error: "Rate fetch failed" });
