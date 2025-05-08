@@ -137,6 +137,7 @@ export async function connect() {
   /* 2 — Peer & DC */
   pc = new RTCPeerConnection();
   dc = pc.createDataChannel("oai-events");
+  // Modified to always include VAD settings
   dc.onopen = () => sendPromptToSession(true);
   dc.onmessage = handleServerEvent;
 
@@ -150,7 +151,9 @@ export async function connect() {
     audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: false },
   });
   localTrack = stream.getTracks()[0];
-  micOff();
+  // Immediately disable the track before adding it
+  localTrack.enabled = false;
+  micEnabled = false;
   pc.addTrack(localTrack);
   pushBtn.disabled = false;
 
