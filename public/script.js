@@ -1,31 +1,31 @@
 /* =========================================================
-   Voice Bot – GPT‑4o Realtime  (Push‑to‑Talk + Dynamic Vars)
+   Voice Bot – GPT-4o Realtime  (Push-to-Talk + Dynamic Vars)
    ======================================================== */
 
 /* ---------- DOM ---------- */
 const $ = (s) => document.getElementById(s);
-const startBtn  = $("startBtn");
-const stopBtn   = $("stopBtn");
-const pushBtn   = $("pushBtn");
-const logsEl    = $("logs");
-const promptEl  = $("promptInput");
-const saveBtn   = $("savePromptBtn");
-const voiceSel  = $("voiceSelect");
-const varsList  = $("varsList");
+const startBtn = $("startBtn");
+const stopBtn = $("stopBtn");
+const pushBtn = $("pushBtn");
+const logsEl = $("logs");
+const promptEl = $("promptInput");
+const saveBtn = $("savePromptBtn");
+const voiceSel = $("voiceSelect");
+const varsList = $("varsList");
 const addVarBtn = $("addVarBtn");
 
 /* ---------- State ---------- */
 let pc, dc, localTrack, audioEl;
-let userPrompt     = "";
-let selectedVoice  = voiceSel.value;
-let micEnabled     = false;
-let variables      = {};
+let userPrompt = "";
+let selectedVoice = voiceSel.value;
+let micEnabled = false;
+let variables = {};
 
 /* ---------- Util ---------- */
 const log = (...a) => {
   console.log(...a);
   logsEl.textContent += a.join(" ") + "\n";
-  logsEl.scrollTop    = logsEl.scrollHeight;
+  logsEl.scrollTop = logsEl.scrollHeight;
 };
 
 /* ---------- Mic Helpers ---------- */
@@ -58,7 +58,7 @@ const addVarRow = (name = "", value = "") => {
 };
 addVarBtn.addEventListener("click", () => addVarRow());
 
-/* ---------- Safe mini‑eval for “=expr” ---------- */
+/* ---------- Safe mini-eval for “=expr” ---------- */
 const safeEval = (expr) => {
   try {
     const sandbox = { Math, Date, Number, String, Boolean, JSON };
@@ -68,16 +68,12 @@ const safeEval = (expr) => {
   }
 };
 
-/* ---------- Variables → object ---------- */
+/* ---------- Variables → object ---------- */
 const collectVariables = () => {
   variables = {};
   varsList.querySelectorAll(".var-row").forEach((row) => {
     const key = row.querySelector(".var-name").value.trim();
-    let   val = row.querySelector(".var-value").value.trim();
-
-    // "=expression" support
-    if (val.startsWith("=")) val = safeEval(val.slice(1));
-
+    const val = row.querySelector(".var-value").value.trim();
     if (key) variables[key] = val;
   });
 };
@@ -85,7 +81,14 @@ const collectVariables = () => {
 /* ---------- Replace {{placeholder}} ---------- */
 const applyVariables = (str) => {
   collectVariables();
-  return str.replace(/{{\s*(\w+)\s*}}/g, (_, k) => variables[k] ?? "");
+  return str.replace(/{{\s*(\w+)\s*}}/g, (_, k) => {
+    let val = variables[k] ?? "";
+    if (typeof val === "string" && val.startsWith("=")) {
+      // HER ÇAĞRIDA yeniden hesapla
+      val = safeEval(val.slice(1));
+    }
+    return val;
+  });
 };
 
 /* ---------- Prompt / Voice Events ---------- */
@@ -101,7 +104,7 @@ voiceSel.addEventListener("change", () => {
   log("🎙️  Seçilen bot sesi:", selectedVoice);
 });
 
-/* ---------- Push‑to‑Talk Events ---------- */
+/* ---------- Push-to-Talk Events ---------- */
 ["mousedown", "touchstart"].forEach((evt) =>
   pushBtn.addEventListener(evt, () => !pushBtn.disabled && micOn())
 );
@@ -116,31 +119,33 @@ export async function connect() {
   if (!userPrompt) return alert("Önce prompt kaydedin.");
 
   startBtn.disabled = true;
-  stopBtn.disabled  = false;
+  stopBtn.disabled = false;
 
-  /* 1 — Mint Ephemeral Key */
-  const sesRes = await fetch(`/session?voice=${encodeURIComponent(selectedVoice)}`);
+  /* 1 — Mint Ephemeral Key */
+  const sesRes = await fetch(
+    `/session?voice=${encodeURIComponent(selectedVoice)}`
+  );
   if (!sesRes.ok) {
     alert("Session oluşturulamadı");
     startBtn.disabled = false;
-    stopBtn.disabled  = true;
+    stopBtn.disabled = true;
     return;
   }
   const { client_secret, id: sessionId } = await sesRes.json();
   const EPHEMERAL_KEY = client_secret.value;
 
-  /* 2 — Peer & DC */
+  /* 2 — Peer & DC */
   pc = new RTCPeerConnection();
   dc = pc.createDataChannel("oai-events");
   dc.onopen = () => sendPromptToSession(true);
   dc.onmessage = handleServerEvent;
 
-  /* 3 — Remote Audio */
+  /* 3 — Remote Audio */
   audioEl = new Audio();
   audioEl.autoplay = true;
   pc.ontrack = (e) => (audioEl.srcObject = e.streams[0]);
 
-  /* 4 — Mic Track */
+  /* 4 — Mic Track */
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: false },
   });
@@ -149,7 +154,7 @@ export async function connect() {
   pc.addTrack(localTrack);
   pushBtn.disabled = false;
 
-  /* 5 — SDP Offer/Answer */
+  /* 5 — SDP Offer/Answer */
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   const sdpRes = await fetch(
@@ -187,6 +192,8 @@ async function handleServerEvent(e) {
       log("🔈  Yanıt tamam");
       if (evt.response?.output?.[0]?.type === "function_call")
         await handleFunctionCall(evt.response.output[0]);
+      // → Her model yanıtından sonra prompt’u yeniden gönder
+      sendPromptToSession();
       break;
     case "error":
       log("⚠️  Hata:", evt.message);
@@ -220,7 +227,7 @@ const sendPromptToSession = (includeVad = false) => {
           parameters: {
             type: "object",
             properties: {
-              base:   { type: "string", description: "Baz para (örn USD)" },
+              base: { type: "string", description: "Baz para (örn USD)" },
               target: { type: "string", description: "Hedef para (örn TRY)" },
             },
             required: ["target"],
@@ -275,7 +282,7 @@ async function handleFunctionCall(call) {
         item: { type: "function_call_output", call_id, output: JSON.stringify(output) },
       })
     );
-    log(`🔧 ${name} →`, JSON.stringify(output));
+    log(`🔧 ${name} →`, JSON.stringify(output));
 
     dc.send(
       JSON.stringify({
@@ -285,15 +292,15 @@ async function handleFunctionCall(call) {
     );
     log("📢  response.create gönderildi (fonksiyon sonrası)");
   } catch (err) {
-    log("❌ Function error:", err);
+    log("❌ Function error:", err);
   }
 }
 
 /* ---------- Disconnect ---------- */
 export const disconnect = () => {
-  stopBtn.disabled  = true;
+  stopBtn.disabled = true;
   startBtn.disabled = false;
-  pushBtn.disabled  = true;
+  pushBtn.disabled = true;
   micOff();
 
   dc?.close();
@@ -301,7 +308,7 @@ export const disconnect = () => {
   localTrack?.stop();
   pc = dc = localTrack = null;
 
-  log("⛔ Bağlantı kapatıldı");
+  log("⛔ Bağlantı kapatıldı");
 };
 
 startBtn.addEventListener("click", connect);
