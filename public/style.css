@@ -225,3 +225,87 @@ footer {
   background-color: #e53935;
   /* kırmızı */
 }
+
+/* Variables Styling */
+.vars-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.var-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.var-name, .var-value {
+  font-family: inherit;
+  font-size: 16px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  transition: border-color 0.2s;
+  flex: 1;
+}
+
+.var-name {
+  flex: 0 0 30%;
+}
+
+.var-name:focus, .var-value:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.2);
+}
+
+.var-row .remove {
+  background-color: var(--secondary-color);
+  color: white;
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s, color 0.2s;
+  width: 30px;
+  height: 30px;
+}
+
+.var-row .remove:hover {
+  background-color: var(--error);
+  color: white;
+}
+
+#addVarBtn {
+  margin-top: 8px;
+  align-self: flex-start;
+}
+
+/* Media Queries for Variables */
+@media (max-width: 600px) {
+  .var-row {
+    flex-direction: column;
+    gap: 8px;
+    position: relative;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+  }
+  
+  .var-name, .var-value {
+    width: 100%;
+    flex: none;
+  }
+  
+  .var-row .remove {
+    position: absolute;
+    top: 8px;
+    right: 0;
+    width: 30px;
+    height: 30px;
+    font-size: 16px;
+  }
+}

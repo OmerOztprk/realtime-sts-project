@@ -1,46 +1,94 @@
 /* =========================================================
-   Voice Bot – Realtime API (Push‑to‑Talk)
-   ---------------------------------------------------------
-   - Başlat   → WebRTC bağlantısı kurulur, mikrofon pasif kalır
-   - Konuş    → Basılı tutulduğunda mikrofon açılır
-   - Durdur   → Bağlantıyı ve medyayı sonlandırır
-========================================================= */
+   Voice Bot – GPT‑4o Realtime  (Push‑to‑Talk + Dynamic Vars)
+   ======================================================== */
 
 /* ---------- DOM ---------- */
-const startBtn = document.getElementById("startBtn");
-const stopBtn = document.getElementById("stopBtn");
-const pushBtn = document.getElementById("pushBtn");
-const logsEl = document.getElementById("logs");
-const promptEl = document.getElementById("promptInput");
-const saveBtn = document.getElementById("savePromptBtn");
-const voiceSel = document.getElementById("voiceSelect");
+const $ = (s) => document.getElementById(s);
+const startBtn  = $("startBtn");
+const stopBtn   = $("stopBtn");
+const pushBtn   = $("pushBtn");
+const logsEl    = $("logs");
+const promptEl  = $("promptInput");
+const saveBtn   = $("savePromptBtn");
+const voiceSel  = $("voiceSelect");
+const varsList  = $("varsList");
+const addVarBtn = $("addVarBtn");
 
 /* ---------- State ---------- */
 let pc, dc, localTrack, audioEl;
-let userPrompt = "";
-let selectedVoice = voiceSel.value;
-let micEnabled = false;   // mikrofon durumu
+let userPrompt     = "";
+let selectedVoice  = voiceSel.value;
+let micEnabled     = false;
+let variables      = {};
 
-/* ---------- Helpers ---------- */
-function log(...a) {
+/* ---------- Util ---------- */
+const log = (...a) => {
   console.log(...a);
   logsEl.textContent += a.join(" ") + "\n";
-  logsEl.scrollTop = logsEl.scrollHeight;
-}
-function micOn() {
-  if (!localTrack || micEnabled) return;   // zaten açık
+  logsEl.scrollTop    = logsEl.scrollHeight;
+};
+
+/* ---------- Mic Helpers ---------- */
+const micOn = () => {
+  if (!localTrack || micEnabled) return;
   localTrack.enabled = true;
   micEnabled = true;
+  pushBtn.classList.add("talking");
   log("🎤  Mikrofon AÇIK");
-}
-function micOff() {
-  if (!localTrack || !micEnabled) return;  // zaten kapalı
+};
+const micOff = () => {
+  if (!localTrack || !micEnabled) return;
   localTrack.enabled = false;
   micEnabled = false;
+  pushBtn.classList.remove("talking");
   log("🔇  Mikrofon KAPALI");
-}
+};
 
-/* ---------- Prompt & Voice ---------- */
+/* ---------- Variable Rows ---------- */
+const addVarRow = (name = "", value = "") => {
+  const row = document.createElement("div");
+  row.className = "var-row";
+  row.innerHTML = `
+    <input class="var-name"  placeholder="isim"  value="${name}">
+    <input class="var-value" placeholder="değer" value="${value}">
+    <button class="remove" title="Sil">&times;</button>
+  `;
+  row.querySelector(".remove").onclick = () => row.remove();
+  varsList.appendChild(row);
+};
+addVarBtn.addEventListener("click", () => addVarRow());
+
+/* ---------- Safe mini‑eval for “=expr” ---------- */
+const safeEval = (expr) => {
+  try {
+    const sandbox = { Math, Date, Number, String, Boolean, JSON };
+    return Function("with(this){ return (" + expr + "); }").call(sandbox);
+  } catch {
+    return expr;
+  }
+};
+
+/* ---------- Variables → object ---------- */
+const collectVariables = () => {
+  variables = {};
+  varsList.querySelectorAll(".var-row").forEach((row) => {
+    const key = row.querySelector(".var-name").value.trim();
+    let   val = row.querySelector(".var-value").value.trim();
+
+    // "=expression" support
+    if (val.startsWith("=")) val = safeEval(val.slice(1));
+
+    if (key) variables[key] = val;
+  });
+};
+
+/* ---------- Replace {{placeholder}} ---------- */
+const applyVariables = (str) => {
+  collectVariables();
+  return str.replace(/{{\s*(\w+)\s*}}/g, (_, k) => variables[k] ?? "");
+};
+
+/* ---------- Prompt / Voice Events ---------- */
 saveBtn.addEventListener("click", () => {
   userPrompt = promptEl.value.trim();
   if (!userPrompt) return alert("Önce prompt girin.");
@@ -53,65 +101,55 @@ voiceSel.addEventListener("change", () => {
   log("🎙️  Seçilen bot sesi:", selectedVoice);
 });
 
-/* ---------- Push‑to‑talk ---------- */
-["mousedown", "touchstart"].forEach(evt =>
+/* ---------- Push‑to‑Talk Events ---------- */
+["mousedown", "touchstart"].forEach((evt) =>
   pushBtn.addEventListener(evt, () => !pushBtn.disabled && micOn())
 );
-["mouseup", "mouseleave", "touchend", "touchcancel"].forEach(evt =>
+["mouseup", "mouseleave", "touchend", "touchcancel"].forEach((evt) =>
   pushBtn.addEventListener(evt, () => !pushBtn.disabled && micOff())
 );
 
-/* ---------- Bağlan ---------- */
+/* =========================================================
+   Connection Lifecycle
+========================================================= */
 export async function connect() {
   if (!userPrompt) return alert("Önce prompt kaydedin.");
 
   startBtn.disabled = true;
-  stopBtn.disabled = false;
+  stopBtn.disabled  = false;
 
-  /* 1 – Ephemeral key */
+  /* 1 — Mint Ephemeral Key */
   const sesRes = await fetch(`/session?voice=${encodeURIComponent(selectedVoice)}`);
   if (!sesRes.ok) {
     alert("Session oluşturulamadı");
     startBtn.disabled = false;
-    stopBtn.disabled = true;
+    stopBtn.disabled  = true;
     return;
   }
   const { client_secret, id: sessionId } = await sesRes.json();
   const EPHEMERAL_KEY = client_secret.value;
 
-  /* 2 – Peer & Data channel */
+  /* 2 — Peer & DC */
   pc = new RTCPeerConnection();
   dc = pc.createDataChannel("oai-events");
   dc.onopen = () => sendPromptToSession(true);
+  dc.onmessage = handleServerEvent;
 
-  dc.onmessage = async (e) => {
-    const evt = JSON.parse(e.data);
-    if (evt.type === "input_audio_buffer.speech_started") log("🗣️  Konuşma başladı");
-    if (evt.type === "input_audio_buffer.speech_stopped") log("🤫  Konuşma bitti");
-    if (evt.type === "response.done") log("🔈  Yanıt tamam");
-    if (evt.type === "error") log("⚠️  Hata:", evt.message);
-
-    if (evt.type === "response.done" &&
-      evt.response?.output?.[0]?.type === "function_call") {
-      await handleFunctionCall(evt.response.output[0]);
-    }
-  };
-
-  /* 3 – Remote audio */
+  /* 3 — Remote Audio */
   audioEl = new Audio();
   audioEl.autoplay = true;
   pc.ontrack = (e) => (audioEl.srcObject = e.streams[0]);
 
-  /* 4 – Mikrofon */
+  /* 4 — Mic Track */
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: false }
+    audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: false },
   });
   localTrack = stream.getTracks()[0];
-  micOff();                       // varsayılan: kapalı
+  micOff();
   pc.addTrack(localTrack);
   pushBtn.disabled = false;
 
-  /* 5 – SDP Offer / Answer */
+  /* 5 — SDP Offer/Answer */
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   const sdpRes = await fetch(
@@ -134,12 +172,36 @@ export async function connect() {
   log("✅  Bağlantı kuruldu — Session:", sessionId);
 }
 
-/* ---------- Session.update gönder ---------- */
-function sendPromptToSession(includeVad = false) {
+/* ---------- Handle Server Events ---------- */
+async function handleServerEvent(e) {
+  const evt = JSON.parse(e.data);
+
+  switch (evt.type) {
+    case "input_audio_buffer.speech_started":
+      log("🗣️  Konuşma başladı");
+      break;
+    case "input_audio_buffer.speech_stopped":
+      log("🤫  Konuşma bitti");
+      break;
+    case "response.done":
+      log("🔈  Yanıt tamam");
+      if (evt.response?.output?.[0]?.type === "function_call")
+        await handleFunctionCall(evt.response.output[0]);
+      break;
+    case "error":
+      log("⚠️  Hata:", evt.message);
+      break;
+    default:
+      break;
+  }
+}
+
+/* ---------- Send session.update ---------- */
+const sendPromptToSession = (includeVad = false) => {
   const payload = {
     type: "session.update",
     session: {
-      instructions: `Tüm yanıtlarını Türkçe ver. ${userPrompt}`,
+      instructions: applyVariables(`Tüm yanıtlarını Türkçe ver. ${userPrompt}`),
       tools: [
         {
           type: "function",
@@ -158,7 +220,7 @@ function sendPromptToSession(includeVad = false) {
           parameters: {
             type: "object",
             properties: {
-              base: { type: "string", description: "Baz para (örn USD)" },
+              base:   { type: "string", description: "Baz para (örn USD)" },
               target: { type: "string", description: "Hedef para (örn TRY)" },
             },
             required: ["target"],
@@ -185,15 +247,15 @@ function sendPromptToSession(includeVad = false) {
 
   dc.send(JSON.stringify(payload));
   log("📜  Prompt + tools oturuma uygulandı.");
-}
+};
 
-/* ---------- Function Call Handler ---------- */
+/* ---------- Function Call Handler ---------- */
 async function handleFunctionCall(call) {
   const { name, arguments: argsJSON, call_id } = call;
   let output;
+
   try {
     const args = JSON.parse(argsJSON || "{}");
-
     if (name === "get_weather") {
       const q = new URLSearchParams({ city: args.city }).toString();
       output = await (await fetch(`/tool/weather?${q}`)).json();
@@ -207,27 +269,31 @@ async function handleFunctionCall(call) {
       throw new Error("Unrecognized function: " + name);
     }
 
-    dc.send(JSON.stringify({
-      type: "conversation.item.create",
-      item: { type: "function_call_output", call_id, output: JSON.stringify(output) }
-    }));
+    dc.send(
+      JSON.stringify({
+        type: "conversation.item.create",
+        item: { type: "function_call_output", call_id, output: JSON.stringify(output) },
+      })
+    );
     log(`🔧 ${name} →`, JSON.stringify(output));
 
-    dc.send(JSON.stringify({
-      type: "response.create",
-      response: { modalities: ["audio", "text"] }
-    }));
+    dc.send(
+      JSON.stringify({
+        type: "response.create",
+        response: { modalities: ["audio", "text"] },
+      })
+    );
     log("📢  response.create gönderildi (fonksiyon sonrası)");
   } catch (err) {
     log("❌ Function error:", err);
   }
 }
 
-/* ---------- Bağlantı kapat ---------- */
-export function disconnect() {
-  stopBtn.disabled = true;
+/* ---------- Disconnect ---------- */
+export const disconnect = () => {
+  stopBtn.disabled  = true;
   startBtn.disabled = false;
-  pushBtn.disabled = true;
+  pushBtn.disabled  = true;
   micOff();
 
   dc?.close();
@@ -236,7 +302,7 @@ export function disconnect() {
   pc = dc = localTrack = null;
 
   log("⛔ Bağlantı kapatıldı");
-}
+};
 
 startBtn.addEventListener("click", connect);
 stopBtn.addEventListener("click", disconnect);
