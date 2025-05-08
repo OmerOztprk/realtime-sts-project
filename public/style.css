@@ -199,16 +199,29 @@ footer {
   .container {
     padding: 20px 16px;
   }
-  
+
   h1 {
     font-size: 28px;
   }
-  
+
   .button-group {
     flex-direction: column;
   }
-  
+
   .card {
     padding: 20px;
   }
+}
+
+#pushBtn {
+  background-color: var(--primary-color, #0073e6);
+  /* mevcut renginiz */
+  color: #fff;
+  transition: background-color 0.15s ease;
+}
+
+#pushBtn:active,
+#pushBtn.talking {
+  background-color: #e53935;
+  /* kırmızı */
 }
